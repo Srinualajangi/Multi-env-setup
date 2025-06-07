@@ -1,0 +1,61 @@
+pipeline {
+    agent any
+
+    environment {
+        COMPONENT = 'web'
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
+        DOCKER_REGISTRY = 'your-docker-registry' // e.g., docker.io/youruser
+        ENV = 'dev'
+    }
+
+    parameters {
+        booleanParam(name: 'deploy', defaultValue: false, description: 'Deploy to Kubernetes?')
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    def image = "${DOCKER_REGISTRY}/${COMPONENT}:${IMAGE_TAG}"
+                    sh "docker build -t ${image} ."
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    def image = "${DOCKER_REGISTRY}/${COMPONENT}:${IMAGE_TAG}"
+                    sh "docker push ${image}"
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            when {
+                expression { return params.deploy }
+            }
+            steps {
+                script {
+                    echo "Deploying ${COMPONENT} to Kubernetes using Helm..."
+                    sh """
+                    sed -i 's/tag:.*/tag: "${IMAGE_TAG}"/' helm/values-${ENV}.yaml
+                    helm upgrade --install ${COMPONENT} ./helm -f helm/values-${ENV}.yaml --namespace ${ENV} --create-namespace
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
